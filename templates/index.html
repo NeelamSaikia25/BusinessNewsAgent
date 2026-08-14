@@ -1,0 +1,1991 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        BusinessNewsAgent
+    </title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+
+</head>
+
+
+<body>
+
+
+<!-- ==========================================================
+     NAVBAR
+     ========================================================== -->
+
+<header class="navbar">
+
+    <div>
+
+        <div class="brand">
+            BusinessNewsAgent
+        </div>
+
+        <div class="subtitle">
+            Global Business Intelligence for India
+        </div>
+
+    </div>
+
+
+    <div class="status">
+
+        <span class="status-dot"></span>
+
+        AI SYSTEM ONLINE
+
+    </div>
+
+</header>
+
+
+
+<!-- ==========================================================
+     MAIN CONTAINER
+     ========================================================== -->
+
+<main class="container">
+
+
+    <!-- ======================================================
+         HERO
+         ====================================================== -->
+
+    <section class="hero">
+
+        <div>
+
+            <h1>
+                Business &amp; Economic Intelligence
+            </h1>
+
+            <p>
+                AI-filtered global news with a focus on
+                implications for the Indian economy.
+            </p>
+
+        </div>
+
+
+        <div class="stat-card">
+
+            <span>
+                ARTICLES
+            </span>
+
+            <strong>
+                {{ total_articles }}
+            </strong>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- ======================================================
+         GLOBAL AGENT PERFORMANCE
+         ====================================================== -->
+
+    <section class="performance-dashboard">
+
+        <div class="performance-header">
+
+            <div>
+
+                <h2>
+                    Agent Performance
+                </h2>
+
+                <p>
+                    Continuous evaluation of AI market
+                    predictions against actual
+                    3-day market movements.
+                </p>
+
+            </div>
+
+
+            <div class="accuracy-badge">
+
+                {{ global_stats.accuracy }}%
+
+                <span>
+                    Directional Accuracy
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="performance-grid">
+
+
+            <div class="performance-card">
+
+                <span>
+                    ARTICLES
+                </span>
+
+                <strong>
+                    {{ global_stats.total_articles }}
+                </strong>
+
+                <small>
+                    News collected
+                </small>
+
+            </div>
+
+
+            <div class="performance-card">
+
+                <span>
+                    AI PREDICTIONS
+                </span>
+
+                <strong>
+                    {{ global_stats.total_predictions }}
+                </strong>
+
+                <small>
+                    Predictions recorded
+                </small>
+
+            </div>
+
+
+            <div class="performance-card">
+
+                <span>
+                    VALIDATED
+                </span>
+
+                <strong>
+                    {{ global_stats.validated_articles }}
+                </strong>
+
+                <small>
+                    3-day observations completed
+                </small>
+
+            </div>
+
+
+            <div class="performance-card">
+
+                <span>
+                    MATCHED
+                </span>
+
+                <strong>
+                    {{ global_stats.total_matches }}
+                    /
+                    {{ global_stats.total_comparisons }}
+                </strong>
+
+                <small>
+                    Directional predictions correct
+                </small>
+
+            </div>
+
+
+        </div>
+
+    </section>
+
+
+
+    <!-- ======================================================
+         SEARCH
+         ====================================================== -->
+
+    <form
+        class="search"
+        method="GET"
+        action="/"
+    >
+
+        <input
+            type="text"
+            name="search"
+            value="{{ search }}"
+            placeholder="Search business, economy, companies..."
+        >
+
+        <button type="submit">
+            Search
+        </button>
+
+
+        {% if search %}
+
+            <a
+                href="/"
+                class="clear"
+            >
+                Clear
+            </a>
+
+        {% endif %}
+
+    </form>
+
+
+
+    <!-- ======================================================
+         SEARCH RESULT
+         ====================================================== -->
+
+    {% if search %}
+
+        <div class="search-result">
+
+            Showing results for:
+
+            <strong>
+                "{{ search }}"
+            </strong>
+
+        </div>
+
+    {% endif %}
+
+
+
+    <!-- ======================================================
+         ARTICLES
+         ====================================================== -->
+
+    {% if articles %}
+
+
+        {% for article in articles %}
+
+            {% set a = article.analysis_data %}
+            {% set p = article.prediction_data %}
+            {% set c = article.comparison %}
+
+
+            <article class="news-card">
+
+
+                <!-- ==================================================
+                     NEWS HEADER
+                     ================================================== -->
+
+                <div class="news-header">
+
+                    <div>
+
+                        <span class="source">
+
+                            {{ article.source or "Unknown Source" }}
+
+                        </span>
+
+
+                        {% if article.published_at %}
+
+                            <span class="date">
+
+                                {{ article.published_at }}
+
+                            </span>
+
+                        {% endif %}
+
+                    </div>
+
+
+                    {% if a.impact_level %}
+
+                        <span
+                            class="
+                                impact
+                                impact-{{ a.impact_level|lower }}
+                            "
+                        >
+
+                            {{ a.impact_level }}
+
+                        </span>
+
+                    {% endif %}
+
+                </div>
+
+
+
+                <!-- ==================================================
+                     HEADLINE
+                     ================================================== -->
+
+                <h2>
+                    {{ article.headline }}
+                </h2>
+
+
+
+                <!-- ==================================================
+                     TAGS
+                     ================================================== -->
+
+                {% if
+                    a.relevance
+                    or a.sentiment
+                    or a.india_score
+                %}
+
+                    <div class="tag-row">
+
+
+                        {% if a.relevance %}
+
+                            <span class="tag">
+
+                                {{ a.relevance }}
+
+                            </span>
+
+                        {% endif %}
+
+
+                        {% if a.sentiment %}
+
+                            <span
+                                class="
+                                    tag
+                                    sentiment-{{ a.sentiment|lower }}
+                                "
+                            >
+
+                                {{ a.sentiment }}
+
+                            </span>
+
+                        {% endif %}
+
+
+                        {% if a.india_score %}
+
+                            <span class="tag">
+
+                                India Impact:
+                                {{ a.india_score }}/100
+
+                            </span>
+
+                        {% endif %}
+
+
+                    </div>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     AI SUMMARY
+                     ================================================== -->
+
+                {% if a.summary %}
+
+                    <section>
+
+                        <h3>
+                            AI Summary
+                        </h3>
+
+                        <p>
+                            {{ a.summary }}
+                        </p>
+
+                    </section>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     GLOBAL + INDIA IMPACT
+                     ================================================== -->
+
+                {% if
+                    a.global_impact
+                    or a.india_impact
+                %}
+
+                    <div class="two-column">
+
+
+                        {% if a.global_impact %}
+
+                            <section>
+
+                                <h3>
+                                    Global Impact
+                                </h3>
+
+                                <p>
+                                    {{ a.global_impact }}
+                                </p>
+
+                            </section>
+
+                        {% endif %}
+
+
+                        {% if a.india_impact %}
+
+                            <section>
+
+                                <h3>
+                                    India Impact
+                                </h3>
+
+                                <p>
+                                    {{ a.india_impact }}
+                                </p>
+
+                            </section>
+
+                        {% endif %}
+
+
+                    </div>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     KEY CONCEPT + SENTIMENT
+                     ================================================== -->
+
+                {% if
+                    a.key_concept
+                    or a.sentiment_reason
+                %}
+
+                    <div class="two-column">
+
+
+                        {% if a.key_concept %}
+
+                            <section class="concept">
+
+                                <h3>
+                                    Key Business Concept
+                                </h3>
+
+                                <p>
+                                    {{ a.key_concept }}
+                                </p>
+
+                            </section>
+
+                        {% endif %}
+
+
+                        {% if a.sentiment_reason %}
+
+                            <section>
+
+                                <h3>
+                                    Sentiment
+                                </h3>
+
+                                <p>
+
+                                    <strong>
+                                        {{ a.sentiment or "N/A" }}
+                                    </strong>
+
+                                    —
+
+                                    {{ a.sentiment_reason }}
+
+                                </p>
+
+                            </section>
+
+                        {% endif %}
+
+
+                    </div>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     IMPACT ASSESSMENT
+                     ================================================== -->
+
+                {% if a.impact_reason %}
+
+                    <section>
+
+                        <h3>
+                            Impact Assessment
+                        </h3>
+
+                        <p>
+                            {{ a.impact_reason }}
+                        </p>
+
+                    </section>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     AI MARKET PREDICTION
+                     ================================================== -->
+
+                {% if
+                    p.oil
+                    or p.nifty
+                    or p.energy
+                %}
+
+                    <section class="prediction">
+
+                        <h3>
+                            AI 3-Day Market Prediction
+                        </h3>
+
+
+                        <div class="prediction-grid">
+
+
+                            <div>
+
+                                <span>
+                                    OIL
+                                </span>
+
+                                <strong>
+                                    {{ p.oil or "FLAT" }}
+                                </strong>
+
+                            </div>
+
+
+                            <div>
+
+                                <span>
+                                    NIFTY
+                                </span>
+
+                                <strong>
+                                    {{ p.nifty or "FLAT" }}
+                                </strong>
+
+                            </div>
+
+
+                            <div>
+
+                                <span>
+                                    INDIAN ENERGY
+                                </span>
+
+                                <strong>
+                                    {{ p.energy or "FLAT" }}
+                                </strong>
+
+                            </div>
+
+
+                        </div>
+
+
+                        {% if p.prediction_date %}
+
+                            <div class="prediction-date">
+
+                                Prediction recorded:
+                                {{ p.prediction_date }}
+
+                            </div>
+
+                        {% endif %}
+
+
+                    </section>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     3-DAY MARKET COMPARISON
+                     ================================================== -->
+
+                {% if c.available %}
+
+
+                    <section class="comparison">
+
+                        <h3>
+                            3-Day Market Comparison
+                        </h3>
+
+
+                        <div class="comparison-table-wrapper">
+
+                            <table class="comparison-table">
+
+                                <thead>
+
+                                    <tr>
+
+                                        <th>
+                                            Market
+                                        </th>
+
+                                        <th>
+                                            AI Prediction
+                                        </th>
+
+                                        <th>
+                                            Actual
+                                        </th>
+
+                                        <th>
+                                            Result
+                                        </th>
+
+                                    </tr>
+
+                                </thead>
+
+
+                                <tbody>
+
+
+                                    <!-- OIL -->
+
+                                    <tr>
+
+                                        <td>
+                                            Oil
+                                        </td>
+
+                                        <td>
+                                            {{ c.predicted_oil or "N/A" }}
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.actual_oil_percent is not none %}
+
+                                                {{ "%+.2f"|format(
+                                                    c.actual_oil_percent
+                                                ) }}%
+
+                                                ({{ c.actual_oil }})
+
+                                            {% else %}
+
+                                                No data
+
+                                            {% endif %}
+
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.oil_result == "MATCH" %}
+
+                                                <span class="comparison-match">
+                                                    MATCH
+                                                </span>
+
+                                            {% elif c.oil_result == "MISMATCH" %}
+
+                                                <span class="comparison-mismatch">
+                                                    MISMATCH
+                                                </span>
+
+                                            {% else %}
+
+                                                <span class="comparison-neutral">
+                                                    {{ c.oil_result }}
+                                                </span>
+
+                                            {% endif %}
+
+                                        </td>
+
+                                    </tr>
+
+
+
+                                    <!-- NIFTY -->
+
+                                    <tr>
+
+                                        <td>
+                                            NIFTY
+                                        </td>
+
+                                        <td>
+                                            {{ c.predicted_nifty or "N/A" }}
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.actual_nifty_percent is not none %}
+
+                                                {{ "%+.2f"|format(
+                                                    c.actual_nifty_percent
+                                                ) }}%
+
+                                                ({{ c.actual_nifty }})
+
+                                            {% else %}
+
+                                                No data
+
+                                            {% endif %}
+
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.nifty_result == "MATCH" %}
+
+                                                <span class="comparison-match">
+                                                    MATCH
+                                                </span>
+
+                                            {% elif c.nifty_result == "MISMATCH" %}
+
+                                                <span class="comparison-mismatch">
+                                                    MISMATCH
+                                                </span>
+
+                                            {% else %}
+
+                                                <span class="comparison-neutral">
+                                                    {{ c.nifty_result }}
+                                                </span>
+
+                                            {% endif %}
+
+                                        </td>
+
+                                    </tr>
+
+
+
+                                    <!-- ENERGY -->
+
+                                    <tr>
+
+                                        <td>
+                                            Indian Energy Stocks
+                                        </td>
+
+                                        <td>
+                                            {{ c.predicted_energy or "N/A" }}
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.actual_energy_percent is not none %}
+
+                                                {{ "%+.2f"|format(
+                                                    c.actual_energy_percent
+                                                ) }}%
+
+                                                ({{ c.actual_energy }})
+
+                                            {% else %}
+
+                                                No data
+
+                                            {% endif %}
+
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.energy_result == "MATCH" %}
+
+                                                <span class="comparison-match">
+                                                    MATCH
+                                                </span>
+
+                                            {% elif c.energy_result == "MISMATCH" %}
+
+                                                <span class="comparison-mismatch">
+                                                    MISMATCH
+                                                </span>
+
+                                            {% else %}
+
+                                                <span class="comparison-neutral">
+                                                    {{ c.energy_result }}
+                                                </span>
+
+                                            {% endif %}
+
+                                        </td>
+
+                                    </tr>
+
+
+                                </tbody>
+
+                            </table>
+
+                        </div>
+
+
+                        {% if c.comparable > 0 %}
+
+                            <div class="comparison-summary">
+
+                                <strong>
+                                    Prediction Result:
+                                </strong>
+
+                                {{ c.matches }}/{{ c.comparable }}
+
+                                directional predictions matched
+                                actual market movement.
+
+                            </div>
+
+                        {% endif %}
+
+
+                        {% if c.recorded_at %}
+
+                            <div class="validation-date">
+
+                                Validated:
+                                {{ c.recorded_at }}
+
+                            </div>
+
+                        {% endif %}
+
+
+                    </section>
+
+
+                {% elif
+                    p.oil
+                    or p.nifty
+                    or p.energy
+                %}
+
+
+                    <section class="comparison comparison-pending">
+
+                        <h3>
+                            3-Day Market Comparison
+                        </h3>
+
+                        <strong>
+                            Awaiting 3-Day Data
+                        </strong>
+
+                        <p>
+
+                            The AI prediction has been recorded.
+                            Actual market performance will be checked
+                            after the 3-day trading observation period.
+
+                        </p>
+
+                    </section>
+
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     ORIGINAL ARTICLE
+                     ================================================== -->
+
+                {% if article.url %}
+
+                    <a
+                        href="{{ article.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="read-more"
+                    >
+
+                        Read original article →
+
+                    </a>
+
+                {% endif %}
+
+
+            </article>
+
+
+        {% endfor %}
+
+
+    {% else %}
+
+
+        <div class="empty">
+
+            <h2>
+                No articles found
+            </h2>
+
+            <p>
+                Try a different search term.
+            </p>
+
+        </div>
+
+
+    {% endif %}
+
+
+</main>
+
+
+
+<!-- ==========================================================
+     FOOTER
+     ========================================================== -->
+
+<footer>
+
+    BusinessNewsAgent —
+    Global Business Intelligence for India
+
+</footer>
+
+
+</body>
+
+</html><!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        BusinessNewsAgent
+    </title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+
+</head>
+
+
+<body>
+
+
+<!-- ==========================================================
+     NAVBAR
+     ========================================================== -->
+
+<header class="navbar">
+
+    <div>
+
+        <div class="brand">
+            BusinessNewsAgent
+        </div>
+
+        <div class="subtitle">
+            Global Business Intelligence for India
+        </div>
+
+    </div>
+
+
+    <div class="status">
+
+        <span class="status-dot"></span>
+
+        AI SYSTEM ONLINE
+
+    </div>
+
+</header>
+
+
+
+<!-- ==========================================================
+     MAIN CONTAINER
+     ========================================================== -->
+
+<main class="container">
+
+
+    <!-- ======================================================
+         HERO
+         ====================================================== -->
+
+    <section class="hero">
+
+        <div>
+
+            <h1>
+                Business &amp; Economic Intelligence
+            </h1>
+
+            <p>
+                AI-filtered global news with a focus on
+                implications for the Indian economy.
+            </p>
+
+        </div>
+
+
+        <div class="stat-card">
+
+            <span>
+                ARTICLES
+            </span>
+
+            <strong>
+                {{ total_articles }}
+            </strong>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- ======================================================
+         GLOBAL AGENT PERFORMANCE
+         ====================================================== -->
+
+    <section class="performance-dashboard">
+
+        <div class="performance-header">
+
+            <div>
+
+                <h2>
+                    Agent Performance
+                </h2>
+
+                <p>
+                    Continuous evaluation of AI market
+                    predictions against actual
+                    3-day market movements.
+                </p>
+
+            </div>
+
+
+            <div class="accuracy-badge">
+
+                {{ global_stats.accuracy }}%
+
+                <span>
+                    Directional Accuracy
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="performance-grid">
+
+
+            <div class="performance-card">
+
+                <span>
+                    ARTICLES
+                </span>
+
+                <strong>
+                    {{ global_stats.total_articles }}
+                </strong>
+
+                <small>
+                    News collected
+                </small>
+
+            </div>
+
+
+            <div class="performance-card">
+
+                <span>
+                    AI PREDICTIONS
+                </span>
+
+                <strong>
+                    {{ global_stats.total_predictions }}
+                </strong>
+
+                <small>
+                    Predictions recorded
+                </small>
+
+            </div>
+
+
+            <div class="performance-card">
+
+                <span>
+                    VALIDATED
+                </span>
+
+                <strong>
+                    {{ global_stats.validated_articles }}
+                </strong>
+
+                <small>
+                    3-day observations completed
+                </small>
+
+            </div>
+
+
+            <div class="performance-card">
+
+                <span>
+                    MATCHED
+                </span>
+
+                <strong>
+                    {{ global_stats.total_matches }}
+                    /
+                    {{ global_stats.total_comparisons }}
+                </strong>
+
+                <small>
+                    Directional predictions correct
+                </small>
+
+            </div>
+
+
+        </div>
+
+    </section>
+
+
+
+    <!-- ======================================================
+         SEARCH
+         ====================================================== -->
+
+    <form
+        class="search"
+        method="GET"
+        action="/"
+    >
+
+        <input
+            type="text"
+            name="search"
+            value="{{ search }}"
+            placeholder="Search business, economy, companies..."
+        >
+
+        <button type="submit">
+            Search
+        </button>
+
+
+        {% if search %}
+
+            <a
+                href="/"
+                class="clear"
+            >
+                Clear
+            </a>
+
+        {% endif %}
+
+    </form>
+
+
+
+    <!-- ======================================================
+         SEARCH RESULT
+         ====================================================== -->
+
+    {% if search %}
+
+        <div class="search-result">
+
+            Showing results for:
+
+            <strong>
+                "{{ search }}"
+            </strong>
+
+        </div>
+
+    {% endif %}
+
+
+
+    <!-- ======================================================
+         ARTICLES
+         ====================================================== -->
+
+    {% if articles %}
+
+
+        {% for article in articles %}
+
+            {% set a = article.analysis_data %}
+            {% set p = article.prediction_data %}
+            {% set c = article.comparison %}
+
+
+            <article class="news-card">
+
+
+                <!-- ==================================================
+                     NEWS HEADER
+                     ================================================== -->
+
+                <div class="news-header">
+
+                    <div>
+
+                        <span class="source">
+
+                            {{ article.source or "Unknown Source" }}
+
+                        </span>
+
+
+                        {% if article.published_at %}
+
+                            <span class="date">
+
+                                {{ article.published_at }}
+
+                            </span>
+
+                        {% endif %}
+
+                    </div>
+
+
+                    {% if a.impact_level %}
+
+                        <span
+                            class="
+                                impact
+                                impact-{{ a.impact_level|lower }}
+                            "
+                        >
+
+                            {{ a.impact_level }}
+
+                        </span>
+
+                    {% endif %}
+
+                </div>
+
+
+
+                <!-- ==================================================
+                     HEADLINE
+                     ================================================== -->
+
+                <h2>
+                    {{ article.headline }}
+                </h2>
+
+
+
+                <!-- ==================================================
+                     TAGS
+                     ================================================== -->
+
+                {% if
+                    a.relevance
+                    or a.sentiment
+                    or a.india_score
+                %}
+
+                    <div class="tag-row">
+
+
+                        {% if a.relevance %}
+
+                            <span class="tag">
+
+                                {{ a.relevance }}
+
+                            </span>
+
+                        {% endif %}
+
+
+                        {% if a.sentiment %}
+
+                            <span
+                                class="
+                                    tag
+                                    sentiment-{{ a.sentiment|lower }}
+                                "
+                            >
+
+                                {{ a.sentiment }}
+
+                            </span>
+
+                        {% endif %}
+
+
+                        {% if a.india_score %}
+
+                            <span class="tag">
+
+                                India Impact:
+                                {{ a.india_score }}/100
+
+                            </span>
+
+                        {% endif %}
+
+
+                    </div>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     AI SUMMARY
+                     ================================================== -->
+
+                {% if a.summary %}
+
+                    <section>
+
+                        <h3>
+                            AI Summary
+                        </h3>
+
+                        <p>
+                            {{ a.summary }}
+                        </p>
+
+                    </section>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     GLOBAL + INDIA IMPACT
+                     ================================================== -->
+
+                {% if
+                    a.global_impact
+                    or a.india_impact
+                %}
+
+                    <div class="two-column">
+
+
+                        {% if a.global_impact %}
+
+                            <section>
+
+                                <h3>
+                                    Global Impact
+                                </h3>
+
+                                <p>
+                                    {{ a.global_impact }}
+                                </p>
+
+                            </section>
+
+                        {% endif %}
+
+
+                        {% if a.india_impact %}
+
+                            <section>
+
+                                <h3>
+                                    India Impact
+                                </h3>
+
+                                <p>
+                                    {{ a.india_impact }}
+                                </p>
+
+                            </section>
+
+                        {% endif %}
+
+
+                    </div>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     KEY CONCEPT + SENTIMENT
+                     ================================================== -->
+
+                {% if
+                    a.key_concept
+                    or a.sentiment_reason
+                %}
+
+                    <div class="two-column">
+
+
+                        {% if a.key_concept %}
+
+                            <section class="concept">
+
+                                <h3>
+                                    Key Business Concept
+                                </h3>
+
+                                <p>
+                                    {{ a.key_concept }}
+                                </p>
+
+                            </section>
+
+                        {% endif %}
+
+
+                        {% if a.sentiment_reason %}
+
+                            <section>
+
+                                <h3>
+                                    Sentiment
+                                </h3>
+
+                                <p>
+
+                                    <strong>
+                                        {{ a.sentiment or "N/A" }}
+                                    </strong>
+
+                                    —
+
+                                    {{ a.sentiment_reason }}
+
+                                </p>
+
+                            </section>
+
+                        {% endif %}
+
+
+                    </div>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     IMPACT ASSESSMENT
+                     ================================================== -->
+
+                {% if a.impact_reason %}
+
+                    <section>
+
+                        <h3>
+                            Impact Assessment
+                        </h3>
+
+                        <p>
+                            {{ a.impact_reason }}
+                        </p>
+
+                    </section>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     AI MARKET PREDICTION
+                     ================================================== -->
+
+                {% if
+                    p.oil
+                    or p.nifty
+                    or p.energy
+                %}
+
+                    <section class="prediction">
+
+                        <h3>
+                            AI 3-Day Market Prediction
+                        </h3>
+
+
+                        <div class="prediction-grid">
+
+
+                            <div>
+
+                                <span>
+                                    OIL
+                                </span>
+
+                                <strong>
+                                    {{ p.oil or "FLAT" }}
+                                </strong>
+
+                            </div>
+
+
+                            <div>
+
+                                <span>
+                                    NIFTY
+                                </span>
+
+                                <strong>
+                                    {{ p.nifty or "FLAT" }}
+                                </strong>
+
+                            </div>
+
+
+                            <div>
+
+                                <span>
+                                    INDIAN ENERGY
+                                </span>
+
+                                <strong>
+                                    {{ p.energy or "FLAT" }}
+                                </strong>
+
+                            </div>
+
+
+                        </div>
+
+
+                        {% if p.prediction_date %}
+
+                            <div class="prediction-date">
+
+                                Prediction recorded:
+                                {{ p.prediction_date }}
+
+                            </div>
+
+                        {% endif %}
+
+
+                    </section>
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     3-DAY MARKET COMPARISON
+                     ================================================== -->
+
+                {% if c.available %}
+
+
+                    <section class="comparison">
+
+                        <h3>
+                            3-Day Market Comparison
+                        </h3>
+
+
+                        <div class="comparison-table-wrapper">
+
+                            <table class="comparison-table">
+
+                                <thead>
+
+                                    <tr>
+
+                                        <th>
+                                            Market
+                                        </th>
+
+                                        <th>
+                                            AI Prediction
+                                        </th>
+
+                                        <th>
+                                            Actual
+                                        </th>
+
+                                        <th>
+                                            Result
+                                        </th>
+
+                                    </tr>
+
+                                </thead>
+
+
+                                <tbody>
+
+
+                                    <!-- OIL -->
+
+                                    <tr>
+
+                                        <td>
+                                            Oil
+                                        </td>
+
+                                        <td>
+                                            {{ c.predicted_oil or "N/A" }}
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.actual_oil_percent is not none %}
+
+                                                {{ "%+.2f"|format(
+                                                    c.actual_oil_percent
+                                                ) }}%
+
+                                                ({{ c.actual_oil }})
+
+                                            {% else %}
+
+                                                No data
+
+                                            {% endif %}
+
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.oil_result == "MATCH" %}
+
+                                                <span class="comparison-match">
+                                                    MATCH
+                                                </span>
+
+                                            {% elif c.oil_result == "MISMATCH" %}
+
+                                                <span class="comparison-mismatch">
+                                                    MISMATCH
+                                                </span>
+
+                                            {% else %}
+
+                                                <span class="comparison-neutral">
+                                                    {{ c.oil_result }}
+                                                </span>
+
+                                            {% endif %}
+
+                                        </td>
+
+                                    </tr>
+
+
+
+                                    <!-- NIFTY -->
+
+                                    <tr>
+
+                                        <td>
+                                            NIFTY
+                                        </td>
+
+                                        <td>
+                                            {{ c.predicted_nifty or "N/A" }}
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.actual_nifty_percent is not none %}
+
+                                                {{ "%+.2f"|format(
+                                                    c.actual_nifty_percent
+                                                ) }}%
+
+                                                ({{ c.actual_nifty }})
+
+                                            {% else %}
+
+                                                No data
+
+                                            {% endif %}
+
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.nifty_result == "MATCH" %}
+
+                                                <span class="comparison-match">
+                                                    MATCH
+                                                </span>
+
+                                            {% elif c.nifty_result == "MISMATCH" %}
+
+                                                <span class="comparison-mismatch">
+                                                    MISMATCH
+                                                </span>
+
+                                            {% else %}
+
+                                                <span class="comparison-neutral">
+                                                    {{ c.nifty_result }}
+                                                </span>
+
+                                            {% endif %}
+
+                                        </td>
+
+                                    </tr>
+
+
+
+                                    <!-- INDIAN ENERGY -->
+
+                                    <tr>
+
+                                        <td>
+                                            Indian Energy Stocks
+                                        </td>
+
+                                        <td>
+                                            {{ c.predicted_energy or "N/A" }}
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.actual_energy_percent is not none %}
+
+                                                {{ "%+.2f"|format(
+                                                    c.actual_energy_percent
+                                                ) }}%
+
+                                                ({{ c.actual_energy }})
+
+                                            {% else %}
+
+                                                No data
+
+                                            {% endif %}
+
+                                        </td>
+
+                                        <td>
+
+                                            {% if c.energy_result == "MATCH" %}
+
+                                                <span class="comparison-match">
+                                                    MATCH
+                                                </span>
+
+                                            {% elif c.energy_result == "MISMATCH" %}
+
+                                                <span class="comparison-mismatch">
+                                                    MISMATCH
+                                                </span>
+
+                                            {% else %}
+
+                                                <span class="comparison-neutral">
+                                                    {{ c.energy_result }}
+                                                </span>
+
+                                            {% endif %}
+
+                                        </td>
+
+                                    </tr>
+
+
+                                </tbody>
+
+                            </table>
+
+                        </div>
+
+
+                        {% if c.comparable > 0 %}
+
+                            <div class="comparison-summary">
+
+                                <strong>
+                                    Prediction Result:
+                                </strong>
+
+                                {{ c.matches }}/{{ c.comparable }}
+
+                                directional predictions matched
+                                actual market movement.
+
+                            </div>
+
+                        {% endif %}
+
+
+                        {% if c.recorded_at %}
+
+                            <div class="validation-date">
+
+                                Validated:
+                                {{ c.recorded_at }}
+
+                            </div>
+
+                        {% endif %}
+
+
+                    </section>
+
+
+                {% elif
+                    p.oil
+                    or p.nifty
+                    or p.energy
+                %}
+
+
+                    <section class="comparison comparison-pending">
+
+                        <h3>
+                            3-Day Market Comparison
+                        </h3>
+
+                        <strong>
+                            Awaiting 3-Day Data
+                        </strong>
+
+                        <p>
+
+                            The AI prediction has been recorded.
+                            Actual market performance will be checked
+                            after the 3-day trading observation period.
+
+                        </p>
+
+                    </section>
+
+
+                {% endif %}
+
+
+
+                <!-- ==================================================
+                     ORIGINAL ARTICLE
+                     ================================================== -->
+
+                {% if article.url %}
+
+                    <a
+                        href="{{ article.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="read-more"
+                    >
+
+                        Read original article →
+
+                    </a>
+
+                {% endif %}
+
+
+            </article>
+
+
+        {% endfor %}
+
+
+    {% else %}
+
+
+        <div class="empty">
+
+            <h2>
+                No articles found
+            </h2>
+
+            <p>
+                Try a different search term.
+            </p>
+
+        </div>
+
+
+    {% endif %}
+
+
+</main>
+
+
+
+<!-- ==========================================================
+     FOOTER
+     ========================================================== -->
+
+<footer>
+
+    BusinessNewsAgent —
+    Global Business Intelligence for India
+
+</footer>
+
+
+</body>
+
+</html>
