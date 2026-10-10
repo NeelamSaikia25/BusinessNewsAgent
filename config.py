@@ -1,9 +1,14 @@
 import os
 
+from dotenv import load_dotenv
+
 
 # ============================================================
 # BUSINESS NEWS AGENT - CONFIGURATION
 # ============================================================
+
+# Load variables from the root .env file
+load_dotenv()
 
 
 # ============================================================
@@ -41,7 +46,7 @@ DATABASE_NAME = os.getenv(
 
 
 # ============================================================
-# VALIDATION
+# CONFIGURATION VALIDATION
 # ============================================================
 
 def validate_config():
@@ -64,11 +69,12 @@ def validate_config():
 
         print()
         print("=" * 70)
-        print("CONFIGURATION ERROR")
+        print("CONFIGURATION STATUS")
         print("=" * 70)
 
         print(
-            "Missing environment variables:"
+            "The following configuration values "
+            "are currently missing:"
         )
 
         for variable in missing:
@@ -76,12 +82,6 @@ def validate_config():
             print(
                 f" - {variable}"
             )
-
-        print()
-        print(
-            "Set the required environment "
-            "variables before running the agent."
-        )
 
         print("=" * 70)
 
@@ -91,14 +91,39 @@ def validate_config():
 
 
 # ============================================================
+# SAFE STATUS CHECK
+# ============================================================
+
+def show_config_status():
+
+    print()
+    print("=" * 70)
+    print("BUSINESS NEWS AGENT - CONFIG STATUS")
+    print("=" * 70)
+
+    print(
+        "GEMINI_API_KEY loaded:",
+        bool(GEMINI_API_KEY)
+    )
+
+    print(
+        "NEWS_API_KEY loaded:",
+        bool(NEWS_API_KEY)
+    )
+
+    print(
+        "DATABASE_NAME:",
+        DATABASE_NAME
+    )
+
+    print("=" * 70)
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
 if __name__ == "__main__":
 
-    if validate_config():
-
-        print()
-        print(
-            "Configuration is valid."
-        )
+    show_config_status()
+    
