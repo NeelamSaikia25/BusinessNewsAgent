@@ -1,4 +1,4 @@
-import sqlite3
+import db_compat as sqlite3
 import json
 import re
 import time
@@ -67,7 +67,7 @@ def create_predictions_table():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS predictions (
 
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
 
             news_id INTEGER NOT NULL,
 
@@ -79,12 +79,14 @@ def create_predictions_table():
 
             prediction_date TEXT,
 
-            UNIQUE(news_id),
-
             FOREIGN KEY(news_id)
             REFERENCES news(id)
         )
     """)
+
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_predictions_news_id ON predictions (news_id)"
+    )
 
     connection.commit()
     connection.close()
@@ -105,10 +107,10 @@ def show_database_status():
     print("=" * 70)
 
     cursor.execute("""
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table'
-        ORDER BY name
+        SELECT table_name AS name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+        ORDER BY table_name
     """)
 
     tables = cursor.fetchall()
@@ -445,9 +447,12 @@ def save_analysis(
 
     cursor = connection.cursor()
 
-    cursor.execute(
-        "PRAGMA table_info(news)"
-    )
+    cursor.execute("""
+        SELECT column_name AS name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'news'
+    """)
 
     columns = [
         row["name"]

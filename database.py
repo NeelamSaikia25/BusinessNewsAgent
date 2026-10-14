@@ -1,4 +1,4 @@
-import sqlite3
+import db_compat as sqlite3
 from datetime import datetime, timedelta
 
 
@@ -41,13 +41,13 @@ def create_database():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS news (
 
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
 
             headline TEXT NOT NULL,
 
             source TEXT,
 
-            url TEXT UNIQUE,
+            url TEXT,
 
             published_at TEXT,
 
@@ -65,7 +65,7 @@ def create_database():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS predictions (
 
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
 
             news_id INTEGER NOT NULL,
 
@@ -78,9 +78,7 @@ def create_database():
             prediction_date TEXT NOT NULL,
 
             FOREIGN KEY (news_id)
-                REFERENCES news(id),
-
-            UNIQUE(news_id)
+                REFERENCES news(id)
 
         )
     """)
@@ -105,7 +103,12 @@ def repair_database():
     # --------------------------------------------------------
 
     cursor.execute(
-        "PRAGMA table_info(news)"
+        """
+        SELECT column_name AS name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'news'
+        """
     )
 
     columns = {
@@ -147,7 +150,7 @@ def repair_database():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS predictions (
 
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
 
             news_id INTEGER NOT NULL,
 
@@ -160,12 +163,18 @@ def repair_database():
             prediction_date TEXT NOT NULL,
 
             FOREIGN KEY (news_id)
-                REFERENCES news(id),
-
-            UNIQUE(news_id)
+                REFERENCES news(id)
 
         )
     """)
+
+    # Preserve the uniqueness rules from the original SQLite schema.
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_news_url ON news (url)"
+    )
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_predictions_news_id ON predictions (news_id)"
+    )
 
     connection.commit()
 
@@ -223,7 +232,7 @@ def save_news(
 
     cursor.execute(
         """
-        INSERT OR IGNORE INTO news
+        INSERT INTO news
         (
             headline,
             source,
@@ -234,6 +243,7 @@ def save_news(
         )
 
         VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (url) DO NOTHING
         """,
 
         (
@@ -309,7 +319,7 @@ def save_prediction(
 
     cursor.execute(
         """
-        INSERT OR REPLACE INTO predictions
+        INSERT INTO predictions
         (
             news_id,
             predicted_oil,
@@ -319,6 +329,11 @@ def save_prediction(
         )
 
         VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT (news_id) DO UPDATE SET
+            predicted_oil = EXCLUDED.predicted_oil,
+            predicted_nifty = EXCLUDED.predicted_nifty,
+            predicted_energy = EXCLUDED.predicted_energy,
+            prediction_date = EXCLUDED.prediction_date
         """,
 
         (
@@ -496,9 +511,9 @@ def search_news(keyword):
         FROM news
 
         WHERE
-            headline LIKE ?
-            OR analysis LIKE ?
-            OR source LIKE ?
+            headline ILIKE ?
+            OR analysis ILIKE ?
+            OR source ILIKE ?
 
         ORDER BY saved_at DESC
         """,

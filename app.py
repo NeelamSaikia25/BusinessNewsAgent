@@ -1,5 +1,5 @@
 import os
-import sqlite3
+import db_compat as sqlite3
 import re
 
 from flask import Flask, render_template, request
@@ -45,10 +45,10 @@ def table_exists(
 
     cursor.execute(
         """
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table'
-        AND name = ?
+        SELECT table_name AS name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = ?
         """,
         (table_name,)
     )
@@ -76,9 +76,9 @@ def get_news(search=""):
             SELECT *
             FROM news
             WHERE
-                headline LIKE ?
-                OR source LIKE ?
-                OR analysis LIKE ?
+                headline ILIKE ?
+                OR source ILIKE ?
+                OR analysis ILIKE ?
             ORDER BY saved_at DESC
             """,
             (

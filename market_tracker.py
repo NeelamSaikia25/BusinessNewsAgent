@@ -1,4 +1,4 @@
-import sqlite3
+import db_compat as sqlite3
 from datetime import datetime, timedelta
 
 import yfinance as yf
@@ -48,7 +48,7 @@ def create_market_table():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS market_results (
 
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
 
             news_id INTEGER,
 
@@ -734,10 +734,10 @@ def show_database_status():
     cursor = connection.cursor()
 
     cursor.execute("""
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table'
-        ORDER BY name
+        SELECT table_name AS name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+        ORDER BY table_name
     """)
 
     tables = cursor.fetchall()

@@ -1,6 +1,4 @@
-import sqlite3
-
-
+import db_compat as sqlite3
 # ============================================================
 # BUSINESS NEWS AGENT
 # AI PREDICTION vs ACTUAL MARKET MOVEMENT
@@ -42,10 +40,10 @@ def table_exists(
 
     cursor.execute(
         """
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table'
-        AND name = ?
+        SELECT table_name AS name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = ?
         """,
         (table_name,)
     )
