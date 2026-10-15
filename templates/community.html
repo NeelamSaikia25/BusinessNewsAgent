@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-intro">
+  <p class="eyebrow">COMMUNITY</p>
+  <h1>Community</h1>
+  <p>Have a thought about BusinessNewsAgent? Share your feedback or leave a note for other readers.</p>
+</section>
+
+<div class="community-stats">
+  <div><strong>{{ counts.all }}</strong><span>Posts received</span></div>
+</div>
+
+<section class="community-layout">
+  <div class="plain-panel">
+    <div class="section-heading compact">
+      <div>
+        <h2>From the community</h2>
+        <p>Thoughts and feedback from readers.</p>
+      </div>
+    </div>
+
+    {% if featured %}
+      <div class="testimonial-list">
+        {% for post in featured %}
+          <article class="testimonial-card">
+            <span class="quote-mark">“</span>
+            <p>{{ post.message }}</p>
+            <div class="testimonial-author">
+              <strong>{{ post.display_name }}</strong>
+              <small>{{ post.created_at.strftime('%d %b %Y') if post.created_at and post.created_at.strftime is defined else post.created_at }}</small>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state compact-empty">
+        <div class="empty-icon">✳</div>
+        <h3>Be the first to leave a note</h3>
+        <p>Community notes will appear here soon.</p>
+      </div>
+    {% endif %}
+
+    {% if community_admin_logged_in %}
+      <a class="button light" href="{{ url_for('community_admin') }}">Manage community posts</a>
+    {% else %}
+      <a class="subtle-link" href="{{ url_for('community_admin_login') }}">Owner sign in</a>
+    {% endif %}
+  </div>
+
+  <aside class="form-panel">
+    <p class="eyebrow">SHARE YOUR THOUGHTS</p>
+    <h2>Leave a note</h2>
+    <p>Your note will be reviewed before it appears on the site.</p>
+    <form method="post" action="{{ url_for('community_submit') }}" class="stack-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="honeypot" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
+      <label for="display_name">Name</label>
+      <input id="display_name" name="display_name" maxlength="80" required placeholder="Your name" autocomplete="name">
+      <label for="message">Message</label>
+      <textarea id="message" name="message" rows="5" minlength="8" maxlength="1000" required placeholder="Share your feedback or a thought..."></textarea>
+      <small>Please be respectful and avoid sharing private information.</small>
+      <button class="button primary full" type="submit">Submit note</button>
+    </form>
+  </aside>
+</section>
+{% endblock %}

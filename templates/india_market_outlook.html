@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-intro"><p class="eyebrow">AGGREGATED MODEL SIGNALS</p><h1>India Market Outlook</h1><p>A separate overview of the agent's eligible recorded signals from the last {{ days }} days. Only articles with a meaningful connection to each tracked market are counted.</p></section>
+<div class="notice info"><strong>How to read this page:</strong> Direction is the most common recorded model output among eligible stories, not a live market forecast. Counts and percentages are displayed so you can see the sample size. This is not investment advice.</div>
+<section class="outlook-grid">
+{% for key, label, detail in [('oil','Crude oil','Global supply, demand and oil-price stories'),('nifty','NIFTY','India-related macroeconomic and equity stories'),('energy','Indian energy stocks','India-linked energy and power-sector stories')] %}
+  {% set item = outlook[key] %}
+  <article class="outlook-card"><p class="eyebrow">{{ label }}</p><h2 class="direction {{ item.direction|lower|replace(' ','-') }}">{% if item.direction == 'UP' %}↑{% elif item.direction == 'DOWN' %}↓{% elif item.direction == 'FLAT' %}→{% else %}—{% endif %} {{ item.direction }}</h2><p>{{ detail }}</p><div class="outlook-stats"><span><strong>{{ item.total }}</strong><small>eligible signals</small></span><span><strong>{{ item.confidence }}%</strong><small>leading direction share</small></span></div><div class="vote-breakdown">{% for direction in ['UP','DOWN','FLAT'] %}<div><span>{{ direction }}</span><strong>{{ item.votes[direction] }}</strong></div>{% endfor %}</div></article>
+{% endfor %}
+</section>
+<section class="plain-panel"><h2>Coverage and limitations</h2><p>The dashboard only has a valid aggregate when previously stored predictions exist. Some stories will deliberately have no prediction shown because they are not relevant to the market being tracked. The model has not been independently validated by this page; actual outcome evaluation appears under Agent Performance on the News Dashboard once results are recorded.</p><p>Eligible articles with at least one relevant market signal: <strong>{{ eligible_articles }}</strong></p></section>
+{% endblock %}

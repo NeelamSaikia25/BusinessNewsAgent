@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="auth-wrap"><div class="form-panel auth-card"><p class="eyebrow">RESTRICTED AREA</p><h1>Owner sign in</h1><p>This area is only for the site owner to review, approve, hide or delete community posts.</p>{% if not password_configured %}<div class="notice warning">Owner access is currently locked. Before using moderation, add <code>COMMUNITY_ADMIN_PASSWORD</code> and <code>SECRET_KEY</code> to the hosting environment variables. Do not put the password in source code.</div>{% endif %}<form method="post" class="stack-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label for="password">Owner password</label><input id="password" type="password" name="password" required autocomplete="current-password"><button class="button primary full" type="submit">Sign in</button></form><a class="subtle-link" href="{{ url_for('community') }}">← Back to Community</a></div></section>
+{% endblock %}
