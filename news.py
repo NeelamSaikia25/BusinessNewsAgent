@@ -1,3 +1,4 @@
+import os
 import requests
 from datetime import datetime, timedelta
 
@@ -18,11 +19,15 @@ from database import (
 
 NEWS_API_URL = "https://newsapi.org/v2/everything"
 
-FINAL_ARTICLE_COUNT = 5
+# Hard per-refresh caps: fetch at most 30 candidates, then retain the 10
+# highest-scoring relevant stories. Keep these limits fixed to avoid accidental
+# quota increases from environment-variable overrides.
+CANDIDATES_PER_REFRESH = 30
+FINAL_ARTICLE_COUNT = 10
 
 REQUEST_TIMEOUT = 20
 
-LOOKBACK_HOURS = 48
+LOOKBACK_HOURS = max(6, min(168, int(os.getenv("NEWS_LOOKBACK_HOURS", "48"))))
 
 
 # ============================================================
@@ -372,7 +377,7 @@ def fetch_candidate_news():
 
         "sortBy": "publishedAt",
 
-        "pageSize": 100,
+        "pageSize": CANDIDATES_PER_REFRESH,
 
         "page": 1
 
@@ -768,6 +773,8 @@ def save_selected_news(selected):
             "publishedAt",
             ""
         )
+        description = article.get("description") or ""
+        content = article.get("content") or ""
 
 
         # ----------------------------------------------------
@@ -805,7 +812,9 @@ def save_selected_news(selected):
                 source,
                 url,
                 published_at,
-                analysis
+                analysis,
+                description=description,
+                content=content
             )
 
 
@@ -884,7 +893,7 @@ def main():
             "\nProcessing stopped safely."
         )
 
-        return
+        return {"status": "empty", "candidate_count": 0, "selected_count": 0, "saved_count": 0}
 
 
     # --------------------------------------------------------
@@ -909,12 +918,9 @@ def main():
     # STEP 5: SAVE
     # --------------------------------------------------------
 
+    saved_count = 0
     if selected:
-
-        saved_count = save_selected_news(
-            selected
-        )
-
+        saved_count = save_selected_news(selected)
         print(
             f"\nSaved {saved_count} "
             "new articles to database."
@@ -944,6 +950,12 @@ def main():
     print(
         "=" * 70
     )
+    return {
+        "status": "completed",
+        "candidate_count": len(all_articles),
+        "selected_count": len(selected),
+        "saved_count": saved_count,
+    }
 
 
 # ============================================================

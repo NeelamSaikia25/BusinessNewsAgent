@@ -2,7 +2,15 @@
 {% block content %}
 <section class="hero-panel">
   <div class="hero-copy"><p class="eyebrow">BUSINESS · ECONOMY · MARKETS</p><h1>Business &amp; economic intelligence</h1><p>Global business news analysed through its potential implications for India, with the relevant MBA concepts highlighted.</p></div>
-  <div class="hero-metric"><span>ARTICLES{% if search %} MATCHED{% endif %}</span><strong>{{ total_articles }}</strong><small>From the stored news feed</small></div>
+  <div class="hero-metric"><span>ARTICLES{% if search %} MATCHED{% endif %}</span><strong>{{ total_articles }}</strong><small>Published in the last 7 days</small></div>
+</section>
+<section class="refresh-toolbar" aria-live="polite">
+  <div class="refresh-copy">
+    <p class="eyebrow">LATEST NEWS FEED</p>
+    <p id="refresh-message">{{ refresh_state.message or 'The latest news feed has not been refreshed yet.' }}</p>
+    <small id="refresh-last">{% if refresh_state.last_success %}Last successful refresh: {{ refresh_state.last_success }}{% else %}Checking for recent business news…{% endif %}</small>
+  </div>
+  <button class="button primary" id="refresh-news-button" type="button" {% if refresh_state.status == 'running' %}disabled{% endif %}>Refresh latest news</button>
 </section>
 <section class="performance-panel">
   <div class="section-heading"><div><p class="eyebrow">MODEL TRACK RECORD</p><h2>Agent Performance</h2><p>Evaluation uses predictions with recorded market outcomes; this is historical tracking, not a guarantee of future accuracy.</p></div><div class="accuracy-number">{{ global_stats.accuracy }}<small>% directional accuracy</small></div></div>
@@ -24,7 +32,7 @@
   <article class="article-card">
     <div class="article-meta"><span class="source-pill">{{ article.source or 'News source' }}</span>{% if article.published_at %}<time>{{ article.published_at }}</time>{% endif %}{% if a.impact_level %}<span class="impact-pill">Impact: {{ a.impact_level|title }}</span>{% endif %}</div>
     <h2 class="article-title">{{ article.headline or 'Untitled news article' }}</h2>
-    {% if a.summary %}<section class="article-section"><h3>What happened</h3><p>{{ a.summary }}</p></section>{% endif %}
+    {% if a.summary %}<section class="article-section"><h3>What happened</h3><p>{{ a.summary }}</p></section>{% elif article.description %}<section class="article-section"><h3>Article preview</h3><p>{{ article.description }}</p></section>{% endif %}
     {% if a.global_impact %}<section class="article-section"><h3>Global implications</h3><p>{{ a.global_impact }}</p></section>{% endif %}
     {% if a.india_impact %}<section class="article-section"><h3>Implications for India</h3><p>{{ a.india_impact }}</p></section>{% endif %}
     {% if a.sentiment or a.impact_reason %}<div class="analysis-chips">{% if a.sentiment %}<span>Sentiment: <b>{{ a.sentiment|title }}</b></span>{% endif %}{% if a.india_score %}<span>India impact score: <b>{{ a.india_score }}/100</b></span>{% endif %}{% if a.impact_reason %}<span>{{ a.impact_reason }}</span>{% endif %}</div>{% endif %}
@@ -41,13 +49,66 @@
     <div class="article-actions">{% if article.url %}<a class="read-link" href="{{ article.url }}" target="_blank" rel="noopener noreferrer">Read original source ↗</a>{% endif %}<span class="article-id">Article #{{ article.id }}</span></div>
   </article>
 {% else %}
-  <section class="empty-state"><div class="empty-icon">⌕</div><h2>No stored articles found</h2><p>{% if search %}Try a different search term.{% else %}News articles will appear here once the agent stores them.{% endif %}</p>{% if search %}<a class="button primary" href="{{ url_for('index') }}">Show all articles</a>{% endif %}</section>
+  <section class="empty-state"><div class="empty-icon">⌕</div><h2>No stored articles found</h2><p>{% if search %}Try a different search term.{% else %}No articles from the last 7 days are stored yet. Use Refresh latest news to fetch recent stories.{% endif %}</p>{% if search %}<a class="button primary" href="{{ url_for('index') }}">Show all articles</a>{% endif %}</section>
 {% endfor %}
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
 (() => {
+  const refreshButton = document.getElementById('refresh-news-button');
+  const refreshMessage = document.getElementById('refresh-message');
+  const refreshLast = document.getElementById('refresh-last');
+  const initialSuccess = {{ (refresh_state.last_success or '')|tojson }};
+  let refreshRequested = false;
+  let reloadScheduled = false;
+  const renderRefreshState = (state) => {
+    if (refreshMessage && state.message) refreshMessage.textContent = state.message;
+    if (refreshLast) refreshLast.textContent = state.last_success ? `Last successful refresh: ${state.last_success}` : 'No successful refresh recorded yet.';
+    if (refreshButton) {
+      const running = state.status === 'running';
+      refreshButton.disabled = running;
+      refreshButton.textContent = running ? 'Refreshing…' : 'Refresh latest news';
+    }
+    if (!reloadScheduled && state.status === 'completed' && state.last_success && state.last_success !== initialSuccess) {
+      reloadScheduled = true;
+      window.setTimeout(() => window.location.reload(), 900);
+    }
+  };
+  const pollRefresh = async () => {
+    try {
+      const response = await fetch('/refresh-news/status', {cache:'no-store'});
+      if (!response.ok) return;
+      const state = await response.json();
+      renderRefreshState(state);
+      if (state.status === 'running') window.setTimeout(pollRefresh, 2500);
+    } catch (_) {
+      if (refreshRequested) window.setTimeout(pollRefresh, 4000);
+    }
+  };
+  if (refreshButton) {
+    refreshButton.addEventListener('click', async () => {
+      refreshRequested = true;
+      refreshButton.disabled = true;
+      refreshButton.textContent = 'Starting…';
+      if (refreshMessage) refreshMessage.textContent = 'Starting news refresh…';
+      try {
+        const response = await fetch('/refresh-news', {method:'POST', headers:{'Accept':'application/json'}});
+        const data = await response.json();
+        if (data.state) renderRefreshState(data.state);
+        if (data.message && refreshMessage) refreshMessage.textContent = data.message;
+        if (data.started || (data.state && data.state.status === 'running')) pollRefresh();
+        else refreshButton.disabled = false;
+      } catch (_) {
+        if (refreshMessage) refreshMessage.textContent = 'Could not start the refresh. Please try again shortly.';
+        refreshButton.disabled = false;
+        refreshButton.textContent = 'Refresh latest news';
+      }
+    });
+  }
+  const pageLoadStatus = {{ refresh_state.status|tojson }};
+  if (pageLoadStatus === 'running') pollRefresh();
+
   const panels = [...document.querySelectorAll('[data-company-symbol]')];
   const load = async (panel) => {
     if (panel.dataset.loaded) return;

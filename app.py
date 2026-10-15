@@ -7,7 +7,7 @@ import hmac
 import secrets
 import random
 import threading
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from functools import wraps
 
 from flask import (
@@ -44,6 +44,216 @@ def get_connection():
 
 
 # ============================================================
+# NEWS REFRESH STATUS + BACKGROUND WORKER
+# ============================================================
+
+# Refresh no more than once per six-hour window, even when a visitor clicks manually.
+NEWS_REFRESH_INTERVAL_HOURS = 6
+NEWS_REFRESH_COOLDOWN_SECONDS = 6 * 60 * 60
+NEWS_AUTO_REFRESH = os.getenv("NEWS_AUTO_REFRESH", "true").strip().lower() not in {"0", "false", "no", "off"}
+_NEWS_REFRESH_LOCK = threading.Lock()
+
+def _utc_now_text():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+def _ensure_refresh_metadata_table():
+    connection = get_connection()
+    try:
+        connection.execute("CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection.commit()
+    finally:
+        connection.close()
+
+def _set_refresh_metadata(**values):
+    _ensure_refresh_metadata_table()
+    connection = get_connection()
+    try:
+        for key, value in values.items():
+            connection.execute(
+                "INSERT INTO app_metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+                (key, str(value if value is not None else ""))
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+def _get_refresh_metadata():
+    _ensure_refresh_metadata_table()
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT key, value FROM app_metadata WHERE key LIKE 'news_refresh_%'")
+        return {row["key"]: row["value"] for row in cursor.fetchall()}
+    finally:
+        connection.close()
+
+def _parse_refresh_time(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+def _public_refresh_message(status, saved_count=0, analyzed_count=0, metadata_ok=True):
+    """Return visitor-friendly status copy; never expose provider/quota diagnostics."""
+    if not metadata_ok:
+        return "News updates are temporarily unavailable. Please check back shortly."
+    if status == "running":
+        return "Refreshing the latest business news…"
+    if status == "failed":
+        return "We couldn't update the news just now. Please try again shortly."
+    if status == "completed":
+        if saved_count > 0 and analyzed_count > 0:
+            return f"Latest news updated: {saved_count} new articles added and {analyzed_count} article insights prepared."
+        if saved_count > 0:
+            return f"Latest news updated: {saved_count} new articles added. More article insights are being prepared."
+        if analyzed_count > 0:
+            return f"Latest news checked: {analyzed_count} article insights updated. No new articles were added this time."
+        return "Latest news check complete. No new articles were added this time."
+    return "The latest news feed is ready."
+
+
+def get_news_refresh_state():
+    metadata_ok = True
+    try:
+        data = _get_refresh_metadata()
+    except Exception as error:
+        app.logger.warning("Could not read news refresh status: %s", error)
+        data = {}
+        metadata_ok = False
+
+    status = data.get("news_refresh_status", "idle")
+    saved_count = int(data.get("news_refresh_saved_count", "0") or 0)
+    analyzed_count = int(data.get("news_refresh_analyzed_count", "0") or 0)
+    # Stored metadata may contain internal diagnostics from an earlier run.
+    # Do not return that raw text from either the homepage or the status API.
+    public_message = _public_refresh_message(
+        status, saved_count=saved_count,
+        analyzed_count=analyzed_count, metadata_ok=metadata_ok
+    )
+    return {
+        "status": status if metadata_ok else "unavailable",
+        "message": public_message,
+        "last_success": data.get("news_refresh_last_success", ""),
+        "last_finished": data.get("news_refresh_last_finished", ""),
+        "candidate_count": int(data.get("news_refresh_candidate_count", "0") or 0),
+        "saved_count": saved_count,
+        "analyzed_count": analyzed_count,
+    }
+
+def _run_news_refresh_worker():
+    started_at = _utc_now_text()
+    candidate_count = 0
+    saved_count = 0
+    analyzed_count = 0
+    note = ""
+    try:
+        _set_refresh_metadata(news_refresh_status="running", news_refresh_message="Fetching recent business news…", news_refresh_started_at=started_at)
+        from config import NEWS_API_KEY
+        if not NEWS_API_KEY:
+            raise RuntimeError("NEWS_API_KEY is not configured in the hosting environment.")
+
+        from refresh_pipeline import run_pipeline
+        _set_refresh_metadata(news_refresh_message="Fetching recent business news and preparing AI analysis…")
+        pipeline_result = run_pipeline()
+        candidate_count = int(pipeline_result.get("candidate_count", 0) or 0)
+        saved_count = int(pipeline_result.get("saved_count", 0) or 0)
+        analyzed_count = int(pipeline_result.get("analyzed_count", 0) or 0)
+        note = str(pipeline_result.get("note", "") or "")
+
+        finished_at = _utc_now_text()
+        message = f"News refresh complete: {saved_count} new articles added; {analyzed_count} analysed with AI." + note
+        _set_refresh_metadata(
+            news_refresh_status="completed", news_refresh_message=message,
+            news_refresh_last_finished=finished_at, news_refresh_last_success=finished_at,
+            news_refresh_started_at=finished_at,
+            news_refresh_candidate_count=candidate_count, news_refresh_saved_count=saved_count,
+            news_refresh_analyzed_count=analyzed_count
+        )
+    except BaseException as error:
+        finished_at = _utc_now_text()
+        error_text = str(error).lower()
+        if "news_api_key" in error_text or "newsapi" in error_text or "provider quota" in error_text:
+            safe_message = "The latest news could not be retrieved just now. Please try again shortly."
+        elif "gemini" in error_text or "google.genai" in error_text or "generative language" in error_text:
+            safe_message = "Some article insights are temporarily unavailable. Please check back shortly."
+        elif "database" in error_text or "postgres" in error_text or "psycopg" in error_text or "connection" in error_text:
+            safe_message = "The news feed is temporarily unavailable. Please try again shortly."
+        elif "not configured" in error_text:
+            safe_message = "The news update is temporarily unavailable. Please try again later."
+        else:
+            safe_message = "We couldn't complete the news update. Please try again shortly."
+        app.logger.exception("News refresh failed")
+        _set_refresh_metadata(
+            news_refresh_status="failed",
+            news_refresh_message=safe_message,
+            news_refresh_last_finished=finished_at,
+            news_refresh_started_at=finished_at,
+            news_refresh_candidate_count=candidate_count,
+            news_refresh_saved_count=saved_count,
+            news_refresh_analyzed_count=analyzed_count
+        )
+    finally:
+        if _NEWS_REFRESH_LOCK.locked():
+            try:
+                _NEWS_REFRESH_LOCK.release()
+            except RuntimeError:
+                pass
+
+def start_news_refresh(force=False):
+    """Launch one refresh, enforcing a six-hour interval for every trigger.
+
+    ``force`` remains in the signature for compatibility with existing callers,
+    but cannot bypass the shared interval.
+    """
+    if not _NEWS_REFRESH_LOCK.acquire(blocking=False):
+        return False, "A news refresh is already running."
+    try:
+        meta = _get_refresh_metadata()
+        last_attempt = _parse_refresh_time(meta.get("news_refresh_started_at"))
+        now = datetime.now(timezone.utc)
+        if meta.get("news_refresh_status") == "running":
+            if last_attempt and (now - last_attempt).total_seconds() < 20 * 60:
+                _NEWS_REFRESH_LOCK.release()
+                return False, "A news refresh is already running."
+            _set_refresh_metadata(news_refresh_status="failed", news_refresh_message="A previous refresh stopped before it completed. A new attempt will start now.", news_refresh_last_finished=_utc_now_text())
+        # Apply the six-hour interval to manual, automatic and scheduled app
+        # requests alike. Public response text stays generic and visitor-friendly.
+        if last_attempt and (now - last_attempt).total_seconds() < NEWS_REFRESH_COOLDOWN_SECONDS:
+            _NEWS_REFRESH_LOCK.release()
+            return False, "The next news update is not due yet. Please check back later."
+        _set_refresh_metadata(news_refresh_status="running", news_refresh_message="Starting news refresh…", news_refresh_started_at=_utc_now_text())
+        worker = threading.Thread(target=_run_news_refresh_worker, name="BusinessNewsAgentNewsRefresh", daemon=True)
+        worker.start()
+        return True, "News refresh started."
+    except Exception:
+        if _NEWS_REFRESH_LOCK.locked():
+            try:
+                _NEWS_REFRESH_LOCK.release()
+            except RuntimeError:
+                pass
+        raise
+
+def maybe_auto_refresh_news():
+    if not NEWS_AUTO_REFRESH:
+        return
+    try:
+        state = _get_refresh_metadata()
+        if state.get("news_refresh_status") == "running":
+            return
+        last_success = _parse_refresh_time(state.get("news_refresh_last_success"))
+        now = datetime.now(timezone.utc)
+        if last_success is None or (now - last_success).total_seconds() >= NEWS_REFRESH_INTERVAL_HOURS * 3600:
+            start_news_refresh(force=False)
+    except Exception as error:
+        app.logger.warning("Automatic news refresh could not be started: %s", error)
+
+
+# ============================================================
 # CHECK WHETHER TABLE EXISTS
 # ============================================================
 
@@ -74,47 +284,34 @@ def table_exists(
 # ============================================================
 
 def get_news(search=""):
-
     connection = get_connection()
     cursor = connection.cursor()
-
-    if search:
-
-        search_term = f"%{search}%"
-
-        cursor.execute(
-            """
-            SELECT *
-            FROM news
-            WHERE
-                headline ILIKE ?
-                OR source ILIKE ?
-                OR analysis ILIKE ?
-            ORDER BY saved_at DESC
-            """,
-            (
-                search_term,
-                search_term,
-                search_term
+    try:
+        if search:
+            search_term = f"%{search}%"
+            cursor.execute(
+                """
+                SELECT * FROM news
+                WHERE headline ILIKE ? OR source ILIKE ? OR analysis ILIKE ?
+                ORDER BY published_at DESC NULLS LAST, saved_at DESC
+                LIMIT 100
+                """,
+                (search_term, search_term, search_term)
             )
-        )
-
-    else:
-
-        cursor.execute(
-            """
-            SELECT *
-            FROM news
-            ORDER BY saved_at DESC
-            """
-        )
-
-    rows = cursor.fetchall()
-
-    connection.close()
-
-    return rows
-
+        else:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+            cursor.execute(
+                """
+                SELECT * FROM news
+                WHERE published_at >= ?
+                ORDER BY published_at DESC NULLS LAST, saved_at DESC
+                LIMIT 30
+                """,
+                (cutoff,)
+            )
+        return cursor.fetchall()
+    finally:
+        connection.close()
 
 # ============================================================
 # CLEAN TEXT
@@ -245,6 +442,9 @@ def parse_analysis(analysis):
     result["summary"] = clean_text(
         text
     )
+    if result["summary"].strip().lower() in {"pending ai analysis", "no analysis provided", "no analysis available"}:
+        result["summary"] = ""
+        return result
 
     structured_summary = extract_section(
         text,
@@ -986,10 +1186,11 @@ def build_mba_concepts(article_text, existing_key_concept=""):
     concepts = [{"title": title, "explanation": explanation} for _, title, explanation in matches[:3]]
     if not concepts and existing_key_concept:
         clean = re.sub(r"\s+", " ", str(existing_key_concept)).strip()
-        if clean and len(clean) <= 300:
-            concepts.append({"title": clean.rstrip("."), "explanation": "This is the concept already identified in the article's AI analysis. The connection is shown only where the available analysis supports it."})
-    if not concepts:
-        concepts.append({"title": "No clear MBA concept confidently identified", "explanation": "The available article summary does not clearly support a specific concept from the current set, so no unrelated concept has been forced."})
+        if clean and len(clean) <= 300 and clean.lower().strip(" .") not in {"no clear concept", "none", "not applicable", "n/a", "no clear mba concept"}:
+            parts = re.split(r"\s*(?:—|–|:)\s*", clean, maxsplit=1)
+            title = parts[0].strip().rstrip(".")
+            explanation = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "This concept is identified in the article's AI analysis; the connection is shown only where the available article supports it."
+            concepts.append({"title": title, "explanation": explanation})
     return concepts[:3]
 
 
@@ -1175,13 +1376,16 @@ def company_api(symbol):
 
 @app.route("/")
 def index():
+    maybe_auto_refresh_news()
     search = request.args.get("search", "").strip()[:160]
     rows = get_news(search)
+    refresh_state = get_news_refresh_state()
     articles = []
     for row in rows:
         article = dict(row)
         article["analysis_data"] = parse_analysis(article.get("analysis", ""))
         article_text = meaningful_article_text(article.get("headline", ""), article.get("analysis", ""))
+        article_text = " ".join([article_text, str(article.get("description") or ""), str(article.get("content") or "")]).strip()
         article["mba_concepts"] = build_mba_concepts(article_text, article["analysis_data"].get("key_concept", ""))
         article["company"] = detect_company(str(article.get("headline") or "") + " " + article_text)
         relevance = market_relevance(article_text)
@@ -1209,9 +1413,26 @@ def index():
     global_stats = get_global_stats()
     return render_template(
         "index.html", articles=articles, search=search,
-        total_articles=len(articles), global_stats=global_stats,
+        total_articles=len(articles), global_stats=global_stats, refresh_state=refresh_state,
         current_tab="home", page_title="Business & Economic Intelligence"
     )
+
+
+@app.route("/refresh-news", methods=["POST"])
+def refresh_news_route():
+    try:
+        started, message = start_news_refresh(force=True)
+        state = get_news_refresh_state()
+        status_code = 202 if started else (409 if state["status"] == "running" else 429)
+        return jsonify({"started": started, "message": message, "state": state}), status_code
+    except Exception as error:
+        app.logger.exception("Could not start news refresh")
+        return jsonify({"started": False, "message": "We could not start the news update. Please try again shortly."}), 500
+
+
+@app.route("/refresh-news/status", methods=["GET"])
+def refresh_news_status_route():
+    return jsonify(get_news_refresh_state())
 
 
 # ============================================================

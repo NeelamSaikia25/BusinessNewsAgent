@@ -2,7 +2,7 @@ import db_compat as sqlite3
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from google import genai
 
@@ -23,21 +23,60 @@ MODEL_NAME = "gemini-3.6-flash"
 # Delay between Gemini requests
 REQUEST_DELAY = 2.5
 
-# Number of retries for failed requests
-MAX_RETRIES = 4
+# One request attempt per article. Failed stories stay pending for a later run.
+# In particular, a quota/rate-limit error must never be retried immediately.
+MAX_RETRIES = 1
 
 
 # ============================================================
 # GEMINI SETUP
 # ============================================================
 
-if not GEMINI_API_KEY:
-    print("ERROR: GEMINI_API_KEY not found in config.py")
-    raise SystemExit(1)
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-client = genai.Client(
-    api_key=GEMINI_API_KEY
-)
+
+def _is_quota_or_rate_limit_error(error):
+    text = str(error).lower()
+    markers = (
+        "429", "resource_exhausted", "quota", "rate limit", "rate-limit",
+        "too many requests", "requests per day", "requests per minute",
+        "request limit", "limit exceeded",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _provider_day_key():
+    # Google's Gemini API daily limits reset at midnight Pacific Time.
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+
+
+def _quota_blocked_today():
+    """Return True after a quota/rate-limit response, avoiding repeat calls today."""
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        cursor.execute("SELECT value FROM app_metadata WHERE key = ?", ("gemini_quota_blocked_on",))
+        row = cursor.fetchone()
+        return bool(row and str(row["value"]) == _provider_day_key())
+    finally:
+        connection.close()
+
+
+def _block_gemini_until_provider_day_changes():
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        cursor.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+            ("gemini_quota_blocked_on", _provider_day_key()),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 # ============================================================
@@ -278,47 +317,34 @@ def clean_json_response(text):
 # ============================================================
 
 def build_prompt(article_text):
-
     return f"""
-You are BusinessNewsAgent, an AI business-news
-analysis system.
-
-Analyze the following business/financial news article.
+You are BusinessNewsAgent, an evidence-focused business-news analyst and MBA learning assistant.
+Analyze ONLY the information in the article text below. Do not invent facts, figures, quotations, companies, or causes. If a detail is not supported, state that it is not clear from the article.
 
 {article_text}
 
-Determine the likely directional impact over the
-next approximately 3 days.
-
-Evaluate:
-
-1. Crude oil prices
-2. India's NIFTY index
-3. Indian energy-sector stocks
-
-For each category select exactly one:
-
-UP
-DOWN
-FLAT
-
-Use FLAT when the article does not provide enough
-evidence for a meaningful directional prediction.
-
-Do not provide investment advice.
-
-Do not provide numerical price targets.
-
-Return ONLY valid JSON.
-
-Use exactly this structure:
-
+Return ONLY valid JSON with exactly these keys:
 {{
-    "analysis": "brief explanation of the economic impact",
-    "predicted_oil": "UP",
-    "predicted_nifty": "DOWN",
-    "predicted_energy": "UP"
+  "summary": "Factual 1-2 sentence explanation of what happened",
+  "global_impact": "2-3 concise sentences on plausible global business/economic implications; distinguish inference from facts",
+  "india_impact": "2-3 concise sentences on plausible implications for India, or say the connection is limited if not material",
+  "key_concept": "One directly relevant MBA/business concept with a short explanation; if none is supported, say No clear concept",
+  "sentiment": "POSITIVE, NEGATIVE, NEUTRAL, or MIXED",
+  "sentiment_reason": "One concise sentence grounded in the report",
+  "impact_level": "HIGH, MEDIUM, or LOW",
+  "impact_reason": "One concise sentence explaining the impact rating",
+  "india_impact_score": 0,
+  "predicted_oil": "UP, DOWN, or FLAT",
+  "predicted_nifty": "UP, DOWN, or FLAT",
+  "predicted_energy": "UP, DOWN, or FLAT"
 }}
+
+Rules:
+- Use a 3-day directional horizon for the three market outputs.
+- Use FLAT when there is no credible, material connection to a market or evidence is insufficient.
+- Do not make stock-price targets or investment recommendations.
+- india_impact_score must be an integer from 0 to 100, based on the likely relevance to India's economy.
+- Keep every field concise, readable, and specific to this story.
 """
 
 
@@ -327,6 +353,9 @@ Use exactly this structure:
 # ============================================================
 
 def generate_prediction(article_text):
+
+    if client is None:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
 
     prompt = build_prompt(
         article_text
@@ -387,21 +416,21 @@ def generate_prediction(article_text):
                 "Gemini request failed:"
             )
 
-            print(
-                error_text
-            )
+            print(error_text)
 
-            # Wait longer after each failure
+            if _is_quota_or_rate_limit_error(error):
+                # Do not retry a known quota/rate-limit response.
+                raise RuntimeError(
+                    "Gemini quota/rate limit reached; stopping further calls for this provider day."
+                ) from error
+
+            # Only one attempt is allowed per article. Leave failures pending for later.
+            if attempt >= MAX_RETRIES:
+                break
+
             wait_time = 3 * attempt
-
-            print()
-            print(
-                f"Waiting {wait_time} seconds before retry..."
-            )
-
-            time.sleep(
-                wait_time
-            )
+            print(f"Waiting {wait_time} seconds before retry...")
+            time.sleep(wait_time)
 
     raise RuntimeError(
         f"Gemini failed after {MAX_RETRIES} attempts: "
@@ -566,10 +595,34 @@ def process_article(row):
         article_text
     )
 
-    analysis = result.get(
-        "analysis",
-        "No analysis provided."
-    )
+    # Store a structured analysis format that the website can display as
+    # summary, global impact, India impact, sentiment, and market outlook.
+    if result.get("summary") or result.get("global_impact") or result.get("india_impact"):
+        market_lines = [
+            f"Oil: {normalize_prediction(result.get('predicted_oil'))}",
+            f"NIFTY: {normalize_prediction(result.get('predicted_nifty'))}",
+            f"Energy: {normalize_prediction(result.get('predicted_energy'))}",
+        ]
+        impact_score = result.get("india_impact_score", 0)
+        try:
+            impact_score = max(0, min(100, int(impact_score)))
+        except (TypeError, ValueError):
+            impact_score = 0
+        analysis = "\n".join([
+            f"SUMMARY: {result.get('summary') or 'Not clear from the article.'}",
+            f"GLOBAL IMPACT: {result.get('global_impact') or 'Not clear from the article.'}",
+            f"INDIA IMPACT: {result.get('india_impact') or 'The direct connection to India is limited or not established.'}",
+            f"KEY CONCEPT: {result.get('key_concept') or 'No clear concept'}",
+            f"SENTIMENT: {result.get('sentiment') or 'NEUTRAL'}",
+            f"SENTIMENT REASON: {result.get('sentiment_reason') or 'Not clearly established from the available article text.'}",
+            f"IMPACT LEVEL: {result.get('impact_level') or 'LOW'}",
+            f"IMPACT REASON: {result.get('impact_reason') or 'The article provides limited evidence of wider impact.'}",
+            "MARKET PREDICTION:",
+            *market_lines,
+            f"INDIA IMPACT SCORE: {impact_score}",
+        ])
+    else:
+        analysis = result.get("analysis", "No analysis provided.")
 
     predicted_oil = normalize_prediction(
         result.get(
@@ -634,7 +687,58 @@ def process_article(row):
 
 
 # ============================================================
-# PROCESS ALL NEWS
+# PROCESS RECENT UNANALYSED ARTICLES FOR WEB REFRESH
+# ============================================================
+
+def process_recent_pending_news(hours=72, max_articles=10):
+    """Analyse up to max_articles of the newest pending stories, within this run's cap.
+
+    Each article gets at most one Gemini API attempt. A quota/rate-limit response
+    stops the rest of the run and blocks further Gemini attempts until the next
+    provider day; NewsAPI fetching remains independent of this Gemini block.
+    """
+    if client is None:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+
+    if _quota_blocked_today():
+        print("Gemini calls skipped: a quota/rate-limit response already occurred today (Pacific Time).")
+        return {"selected": 0, "processed": 0, "failed": 0, "quota_limited": True}
+
+    cutoff = (datetime.utcnow() - timedelta(hours=max(1, int(hours)))).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("""
+            SELECT n.*
+            FROM news n
+            WHERE n.published_at >= ?
+              AND (n.analysis IS NULL OR TRIM(n.analysis) = '' OR LOWER(TRIM(n.analysis)) = 'pending ai analysis')
+              AND NOT EXISTS (SELECT 1 FROM predictions p WHERE p.news_id = n.id)
+            ORDER BY n.published_at DESC
+            LIMIT ?
+        """, (cutoff, max(1, min(int(max_articles), 10))))
+        articles = cursor.fetchall()
+    finally:
+        connection.close()
+
+    result = {"selected": len(articles), "processed": 0, "failed": 0, "quota_limited": False}
+    for index, row in enumerate(articles, start=1):
+        try:
+            process_article(row)
+            result["processed"] += 1
+        except Exception as error:
+            result["failed"] += 1
+            print(f"Recent article analysis failed for news ID {row['id']}: {error}")
+            if _is_quota_or_rate_limit_error(error):
+                result["quota_limited"] = True
+                _block_gemini_until_provider_day_changes()
+                break
+        if index < len(articles) and not result["quota_limited"]:
+            time.sleep(REQUEST_DELAY)
+    return result
+
+# ============================================================
+# PROCESS ALL NEWS (CLI / MANUAL BACKFILL)
 # ============================================================
 
 def process_news():
@@ -855,6 +959,10 @@ def verify_predictions():
 # ============================================================
 
 def test_gemini():
+
+    if client is None:
+        print("GEMINI_API_KEY is not configured.")
+        return False
 
     print()
     print("=" * 70)
