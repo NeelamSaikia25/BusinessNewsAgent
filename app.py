@@ -98,6 +98,43 @@ def _parse_refresh_time(value):
     except (TypeError, ValueError):
         return None
 
+def _parse_article_datetime(value):
+    """Parse ISO-8601 and legacy RFC-style published timestamps safely."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+
+    parsed = None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        pass
+
+    if parsed is None:
+        try:
+            from email.utils import parsedate_to_datetime
+            parsed = parsedate_to_datetime(text)
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _format_remaining(seconds):
+    """Format a cooldown for visitors without exposing implementation details."""
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes = remainder // 60
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m"
+    return "less than a minute"
+
 def _public_refresh_message(status, saved_count=0, analyzed_count=0, metadata_ok=True):
     """Return visitor-friendly status copy; never expose provider/quota diagnostics."""
     if not metadata_ok:
@@ -131,10 +168,21 @@ def get_news_refresh_state():
     analyzed_count = int(data.get("news_refresh_analyzed_count", "0") or 0)
     # Stored metadata may contain internal diagnostics from an earlier run.
     # Do not return that raw text from either the homepage or the status API.
+    started_at = _parse_refresh_time(data.get("news_refresh_started_at")) if metadata_ok else None
+    now = datetime.now(timezone.utc)
+    elapsed = (now - started_at).total_seconds() if started_at else None
+    remaining = max(0, int(NEWS_REFRESH_COOLDOWN_SECONDS - elapsed)) if elapsed is not None else 0
+    is_running = status == "running"
+    can_refresh = bool(metadata_ok and not is_running and remaining == 0)
+    cooldown_label = _format_remaining(remaining) if remaining > 0 else ""
+
     public_message = _public_refresh_message(
         status, saved_count=saved_count,
         analyzed_count=analyzed_count, metadata_ok=metadata_ok
     )
+    if metadata_ok and not is_running and remaining > 0:
+        public_message = f"The next news update is scheduled in about {cooldown_label}."
+
     return {
         "status": status if metadata_ok else "unavailable",
         "message": public_message,
@@ -143,6 +191,9 @@ def get_news_refresh_state():
         "candidate_count": int(data.get("news_refresh_candidate_count", "0") or 0),
         "saved_count": saved_count,
         "analyzed_count": analyzed_count,
+        "can_refresh": can_refresh,
+        "seconds_until_next_refresh": remaining,
+        "cooldown_label": cooldown_label,
     }
 
 def _run_news_refresh_worker():
@@ -224,8 +275,9 @@ def start_news_refresh(force=False):
         # Apply the six-hour interval to manual, automatic and scheduled app
         # requests alike. Public response text stays generic and visitor-friendly.
         if last_attempt and (now - last_attempt).total_seconds() < NEWS_REFRESH_COOLDOWN_SECONDS:
+            remaining = NEWS_REFRESH_COOLDOWN_SECONDS - (now - last_attempt).total_seconds()
             _NEWS_REFRESH_LOCK.release()
-            return False, "The next news update is not due yet. Please check back later."
+            return False, f"The next news update is scheduled in about {_format_remaining(remaining)}."
         _set_refresh_metadata(news_refresh_status="running", news_refresh_message="Starting news refresh…", news_refresh_started_at=_utc_now_text())
         worker = threading.Thread(target=_run_news_refresh_worker, name="BusinessNewsAgentNewsRefresh", daemon=True)
         worker.start()
@@ -284,6 +336,12 @@ def table_exists(
 # ============================================================
 
 def get_news(search=""):
+    """Return search matches or genuinely recent stories for the homepage.
+
+    ``published_at`` is a legacy TEXT field containing more than one timestamp
+    format. Comparing those strings to an ISO timestamp is not chronologically
+    safe, so the homepage parses dates before filtering them.
+    """
     connection = get_connection()
     cursor = connection.cursor()
     try:
@@ -298,18 +356,29 @@ def get_news(search=""):
                 """,
                 (search_term, search_term, search_term)
             )
-        else:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
-            cursor.execute(
-                """
-                SELECT * FROM news
-                WHERE published_at >= ?
-                ORDER BY published_at DESC NULLS LAST, saved_at DESC
-                LIMIT 30
-                """,
-                (cutoff,)
-            )
-        return cursor.fetchall()
+            return cursor.fetchall()
+
+        # News collection targets the most recent 48 hours. The homepage keeps
+        # a 7-day window so it can show recent stories between refreshes, but it
+        # must never surface old legacy records just because their timestamps
+        # use a different string format.
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=7)
+        cursor.execute(
+            "SELECT * FROM news ORDER BY saved_at DESC NULLS LAST LIMIT 1000"
+        )
+        rows = cursor.fetchall()
+        recent = []
+        for row in rows:
+            published = _parse_article_datetime(row["published_at"])
+            # Do not substitute saved_at for a missing/invalid publication date;
+            # that could make an old article look new after migration.
+            if published is None:
+                continue
+            if cutoff <= published <= now + timedelta(hours=6):
+                recent.append((published, row))
+        recent.sort(key=lambda item: item[0], reverse=True)
+        return [row for _, row in recent[:30]]
     finally:
         connection.close()
 

@@ -1,6 +1,6 @@
 import os
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from config import NEWS_API_KEY
 
@@ -521,6 +521,26 @@ def fetch_candidate_news():
     return articles
 
 
+def _parse_published_at(value):
+    """Parse API ISO timestamps and legacy RFC-style timestamps to UTC."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        try:
+            from email.utils import parsedate_to_datetime
+            parsed = parsedate_to_datetime(text)
+        except (TypeError, ValueError, OverflowError):
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 # ============================================================
 # FILTER ARTICLES
 # ============================================================
@@ -561,6 +581,16 @@ def filter_articles(articles):
 
             continue
 
+        # Enforce freshness in code as well as in the provider query. This keeps
+        # stale stories out even if a provider returns an out-of-window result.
+        published_at = _parse_published_at(article.get("publishedAt"))
+        now_utc = datetime.now(timezone.utc)
+        if published_at is None:
+            continue
+        if published_at < now_utc - timedelta(hours=LOOKBACK_HOURS):
+            continue
+        if published_at > now_utc + timedelta(hours=6):
+            continue
 
         # ----------------------------------------------------
         # Ignore promotional content

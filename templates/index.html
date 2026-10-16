@@ -10,7 +10,7 @@
     <p id="refresh-message">{{ refresh_state.message or 'The latest news feed has not been refreshed yet.' }}</p>
     <small id="refresh-last">{% if refresh_state.last_success %}Last successful refresh: {{ refresh_state.last_success }}{% else %}Checking for recent business news…{% endif %}</small>
   </div>
-  <button class="button primary" id="refresh-news-button" type="button" {% if refresh_state.status == 'running' %}disabled{% endif %}>Refresh latest news</button>
+  <button class="button primary" id="refresh-news-button" type="button" {% if refresh_state.status == 'running' or not refresh_state.can_refresh %}disabled{% endif %}>{% if refresh_state.status == 'running' %}Refreshing…{% elif not refresh_state.can_refresh and refresh_state.cooldown_label %}Next update in {{ refresh_state.cooldown_label }}{% else %}Refresh latest news{% endif %}</button>
 </section>
 <section class="performance-panel">
   <div class="section-heading"><div><p class="eyebrow">MODEL TRACK RECORD</p><h2>Agent Performance</h2><p>Evaluation uses predictions with recorded market outcomes; this is historical tracking, not a guarantee of future accuracy.</p></div><div class="accuracy-number">{{ global_stats.accuracy }}<small>% directional accuracy</small></div></div>
@@ -49,7 +49,7 @@
     <div class="article-actions">{% if article.url %}<a class="read-link" href="{{ article.url }}" target="_blank" rel="noopener noreferrer">Read original source ↗</a>{% endif %}<span class="article-id">Article #{{ article.id }}</span></div>
   </article>
 {% else %}
-  <section class="empty-state"><div class="empty-icon">⌕</div><h2>No stored articles found</h2><p>{% if search %}Try a different search term.{% else %}No articles from the last 7 days are stored yet. Use Refresh latest news to fetch recent stories.{% endif %}</p>{% if search %}<a class="button primary" href="{{ url_for('index') }}">Show all articles</a>{% endif %}</section>
+  <section class="empty-state"><div class="empty-icon">⌕</div><h2>No stored articles found</h2><p>{% if search %}Try a different search term.{% else %}No recent articles are available right now. The feed will check again at the next scheduled update.{% endif %}</p>{% if search %}<a class="button primary" href="{{ url_for('index') }}">Show all articles</a>{% endif %}</section>
 {% endfor %}
 </div>
 {% endblock %}
@@ -67,8 +67,9 @@
     if (refreshLast) refreshLast.textContent = state.last_success ? `Last successful refresh: ${state.last_success}` : 'No successful refresh recorded yet.';
     if (refreshButton) {
       const running = state.status === 'running';
-      refreshButton.disabled = running;
-      refreshButton.textContent = running ? 'Refreshing…' : 'Refresh latest news';
+      const coolingDown = state.can_refresh === false && !running;
+      refreshButton.disabled = running || coolingDown;
+      refreshButton.textContent = running ? 'Refreshing…' : (coolingDown ? `Next update in ${state.cooldown_label || 'a few hours'}` : 'Refresh latest news');
     }
     if (!reloadScheduled && state.status === 'completed' && state.last_success && state.last_success !== initialSuccess) {
       reloadScheduled = true;
